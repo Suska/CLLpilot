@@ -1,0 +1,64 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage{lscape}
+
+\title{CLL pilot -  Non-negative matrix factorization (NMF)}
+\author{Dr. Susanne Weller}
+\date{\today}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+\maketitle
+
+\section{Data preparation}
+<<Data prep, echo=TRUE, eval=TRUE>>=
+#Working directory
+setwd("/home/andreas/suska/work/02_CLLpilot/CLLpilot/trunk/CLL_pilot_mutationsignature_nmf")
+#input file
+nmfdata <- read.table("CLLpilot_mutationsignature.tsv", header=TRUE, sep="\t")
+names(nmfdata)[1] <- "patientID" 
+row.names(nmfdata)<- nmfdata$patientID
+nmfdata$patientID <- NULL
+nmfdata <-t(nmfdata)
+@
+\section{NMF}
+<<single NMF, echo=TRUE,eval=FALSE>>=
+library(NMF)
+mutsignaturenmf <- nmf(nmfdata, 2, seed="random", method="brunet", nrun=5)
+#The fitted model can be retrieved via method fit, which returns an object of class NMF:
+targetmatrix <- fit(mutsignaturenmf)
+targetmatrixW <- as.data.frame(targetmatrix@W)
+targetmatrixH <- as.data.frame(targetmatrix@H)
+fit(mutsignaturenmf)
+cophcor(mutsignaturenmf)
+@
+NMF was performed by using a modified version of the publicly-available implementation (Brunet et al., 2004) of the multiplicative updated algorithm (Lee and Seung, 1999) and was repeated 1,000 times for each value of k. The cophenetic correlation coefficient indicated reproducibility and stability for k values between 2 and 6 (Figure S2A). The cophenetic correlation fell sharply for k > 6(less than 0.95, Figure S2A) indicating a lack of robustness when a decomposition exceeded 6 signatures for this data set. Given
+a value of k, each sample was reconstructed and compared to the observed data (Figure S2B). Error in reconstruction for each value of k was plotted (Figure S2C), and a dramatic reduction in the slope of the reconstruction error revealed that the model stabilized at five mutational signatures.
+<< echo=FALSE, eval=TRUE>>=
+#This part tries to estimate the optimal k
+#Produce nmf objects for each k and calculate the cophenetic correlation coefficient
+coph <- NA
+for(i in 1:10){
+  mutsignaturenmf <- nmf(nmfdata, i, seed="random", method="brunet", nrun=3)#change nrun on workstation
+  coph$k <- i
+  coph$cophcor <- cophcor(mutsignaturenmf)
+}
+@
+
+
+
+\section*{References}
+Renaud Gaujoux et al. 
+exible R package for nonnegative matrix factorization". In: BMC
+Bioinformatics 11.1 (2010), p. 367. issn: 1471-2105. doi: 10.1186/1471-2105-11-367
+<<Citation, echo=FALSE, results=tex>>=
+citation("NMF")
+@
+
+\end{document}

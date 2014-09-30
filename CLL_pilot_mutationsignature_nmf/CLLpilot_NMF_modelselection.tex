@@ -1,0 +1,52 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage{lscape}
+
+\title{CLL pilot -  Non-negative matrix factorization (NMF)}
+\author{Dr. Susanne Weller}
+\date{\today}
+
+\usepackage{Sweave}
+\begin{document}
+\input{CLLpilot_NMF_modelselection-concordance}
+
+\maketitle
+
+\section{Data preparation}
+\begin{Schunk}
+\begin{Sinput}
+> #Working directory
+> setwd("/home/andreas/suska/work/02_CLLpilot/CLLpilot/trunk/CLL_pilot_mutationsignature_nmf")
+> #input file
+> nmfdata <- read.table("CLLpilot_mutationsignature.tsv", header=TRUE, sep="\t")
+> names(nmfdata)[1] <- "patientID" 
+> row.names(nmfdata)<- nmfdata$patientID
+> nmfdata$patientID <- NULL
+> nmfdata <-t(nmfdata)
+\end{Sinput}
+\end{Schunk}
+\section{NMF-optimization}
+NMF model was optimized by repeating the model 1000 times for ks between 2 and 20. The optimal k was selected where the cophenetic correlation coefficient fell sharply.(DOne on workstation)
+The final model was the best selected from these 1000 models.
+\section(final NMF model evaluation)
+\begin{Schunk}
+\begin{Sinput}
+> library(NMF)
+> #k=4
+> set.seed(1712)
+> mutsignaturenmf <- nmf(nmfdata, 4, seed="random", method="brunet", nrun=1000, .options="p4")
+> #The fitted model can be retrieved via method fit, which returns an object of class NMF:
+> targetmatrix <- fit(mutsignaturenmf)
+> targetmatrixSignatures <- as.data.frame(targetmatrix@W)
+> #This converts the counts into percentages
+> targetmatrixSignatures[1:4] <- as.data.frame(lapply(targetmatrixSignatures[1:4], function(x)(x/sum(x))*100))
+> targetmatrixPatients <- as.data.frame(targetmatrix@H)
+\end{Sinput}
+\end{Schunk}
+
+\subsection{Mutational Signatures for Each patient}

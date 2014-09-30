@@ -1,0 +1,209 @@
+.\documentclass[a4paper,11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage{lscape}
+
+\title{CLL pilot -  Mutational signatures via Non-negative matrix factorization (NMF)}
+\author{Dr. Susanne Weller}
+\date{\today}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+\maketitle
+
+\section{Data preparation}
+Data for each snv and its mutational environment (the base before and after that snvs) were obtained from illumina.
+<<Data prep, echo=TRUE, eval=TRUE>>=
+#Working directory
+setwd("/home/andreas/suska/work/02_CLLpilot/CLLpilot/trunk/CLL_pilot_mutationsignature_nmf")
+#input file
+nmfdata <- read.table("CLLpilot_mutationsignature.tsv", header=TRUE, sep="\t")
+names(nmfdata)[1] <- "patientID" 
+#rownames have to be patient IDs
+row.names(nmfdata)<- nmfdata$patientID
+nmfdata$patientID <- NULL
+#This makes rows columns and vice versa (transpose)
+nmfdata <-t(nmfdata)
+@
+\section{NMF-optimization}
+NMF was performed using R version 3.0.1 and the NMF package (Gaujoux et al., 2010). We used the Brunet algorithm 
+(Brunet et al., 2004) with random seeding repeatedle over 1,000 times for value of k between 2 and 20. The cophenetic correlation coefficient indicates reproducibility and stability for k values between 2 and 4 and fell sharply thereafter. Given the small sample size, we conservatively selected k=3 and choose the best of the 
+1000 produced NMF models.
+
+<<nmf optimization, echo=FALSE, eval=TRUE>>=
+#This part estimates the optimal k
+#Produce nmf objects for each k and calculate the cophenetic correlation coefficient
+coph <- NA
+for(i in 1:10){
+  mutsignaturenmf <- nmf(nmfdata, i, seed="random", method="brunet", nrun=3)#change nrun on workstation
+  coph$k <- i
+  coph$cophcor <- cophcor(mutsignaturenmf)
+}
+@
+
+<<fig nmf optimization, echo=FALSE, eval=TRUE, width=9>>=
+ggplot()+geom_line(data=coph, aes(x=k, y=cophcor))+
+  ylim(c(0, 1))
+@
+
+\section(final NMF model evaluation)
+<<single final NMF, echo=TRUE,eval=FALSE>>=
+library(NMF)
+#k=3
+set.seed(1712)
+mutsignaturenmf <- nmf(nmfdata, 3, seed="random", method="brunet", nrun=1000, .options="p4")
+#The fitted model can be retrieved via method fit, which returns an object of class NMF:
+targetmatrix <- fit(mutsignaturenmf)
+targetmatrixSignatures <- as.data.frame(targetmatrix@W)
+#This converts the counts into percentages
+targetmatrixSignatures[1:3] <- as.data.frame(lapply(targetmatrixSignatures[1:3], function(x)(x/sum(x))*100))
+targetmatrixPatients <- as.data.frame(targetmatrix@H)
+@
+
+\subsection{Mutational Features for each Signature}
+%make this into publishable format!
+<<fig=TRUE, echo=FALSE, width=10>>=
+library(ggplot2)
+targetmatrixSignatures$sig <- row.names(targetmatrixSignatures)
+row.names(targetmatrixSignatures)<- NULL
+targetmatrixSignatures <- melt(targetmatrixSignatures, value.name="sig.value")
+targetmatrixSignatures$snp <- as.factor(substr(targetmatrixSignatures$sig, 1, 4))
+ggplot(targetmatrixSignatures, aes(x=sig, y=sig.value, fill=snp)) + geom_bar(stat="identity") +
+  facet_wrap(~ variable, ncol=1)+
+theme(axis.text.x=element_text(angle=90))+
+  scale_fill_manual(values=c("purple", "yellow", "green", "blue", "black", "red"))
+@
+\subsection{Mutational Signatures for Each patient}
+This figure gives an overview over all patients:
+<<fig=TRUE, echo=FALSE, width=10>>=
+#turn around patient names
+#use percentage of total for mutation profile
+library(ggplot2)
+library(reshape2)
+# melt data from wide to long
+targetmatrixPatients <- as.data.frame(t(targetmatrixPatients))
+targetmatrixPatients$ID <- row.names(targetmatrixPatients)
+row.names(targetmatrixPatients)<- NULL
+targetmatrixPatients <- melt(targetmatrixPatients, value.name="sig.value")
+# plot
+ggplot(targetmatrixPatients, aes(x=ID, y=sig.value, fill = variable)) + 
+  geom_bar(stat = "identity")+
+  theme(axis.text.x=element_text(angle=90))
+@
+
+This is the same data scaled to 100 per cent like in the breast cancer paper:\\
+<<fig=TRUE, echo=FALSE, width=10>>=
+library(scales)
+ggplot(targetmatrixPatients, aes(x=ID, y=sig.value, fill = variable)) + 
+  geom_bar(stat="identity", position = "fill") + 
+    scale_y_continuous(labels = percent_format())+
+  theme(axis.text.x=element_text(angle=90))
+@
+Now we want to know if the initial(before treatment) mutation profiles connect to fluradabine refractoriness:
+<<fig=TRUE, echo=FALSE, width=10>>=
+#Connect clinical data with mutational signature data
+patientdata <- read.table("CLL_samples_clinical.csv", header=TRUE, sep="\t", na.strings = "")
+levels(patientdata$flu_refrac) <- c("no", "yes")
+targetmatrixPatients_clinical <- merge(targetmatrixPatients, patientdata, by.x="ID", by.y="X")
+
+targetmatrixPatients_clinical_initial <- subset(targetmatrixPatients_clinical, targetmatrixPatients_clinical$tumour_no==1&targetmatrixPatients_clinical$treat_prior_seq=="No" )
+targetmatrixPatients_clinical_initial$variable <- ordered(targetmatrixPatients_clinical_initial$variable)
+
+#plot mutational profiles by refractoryness
+#select refractory patients
+targetmatrixPatients_clinical_initial_refr <- subset(targetmatrixPatients_clinical_initial, flu_refrac=="yes")
+#order by V2 value
+targetmatrixPatients_clinical_initial_refr <- targetmatrixPatients_clinical_initial_refr[order(targetmatrixPatients_clinical_initial_refr$variable, targetmatrixPatients_clinical_initial_refr$sig.value),]
+)
+targetmatrixPatients_clinical_initial_refr$patientID <- as.character(targetmatrixPatients_clinical_initial_refr$patientID)
+targetmatrixPatients_clinical_initial_refr$patientID <- ordered(targetmatrixPatients_clinical_initial_refr$patientID, levels=c("CLL252", "CLL371", "CLL003", "CLL374", "CLL112", "CW_L80", "CLL145", "CLL321", "CLL369", "CLL372", "CLL317"))
+
+refractoryprofiles <- ggplot(data=targetmatrixPatients_clinical_initial_refr)+
+  geom_bar(aes(x=patientID, y=sig.value, fill=variable, order-variable), stat="identity", position="fill")+
+  coord_flip()+
+guides(fill=FALSE)+
+  scale_y_continuous(labels = percent_format())+
+  theme_bw()+
+  scale_fill_manual(values=c("cadetblue3", "mediumvioletred", "lightslategrey"))+
+  ylab("Percentage")+
+  xlab("")+
+  ggtitle("Flurabadine refractory patients")
+
+#select non-refractory patients
+targetmatrixPatients_clinical_initial_notrefr <- subset(targetmatrixPatients_clinical_initial, flu_refrac=="no")
+
+#order by V2 value
+targetmatrixPatients_clinical_initial_notrefr <- targetmatrixPatients_clinical_initial_notrefr[order(targetmatrixPatients_clinical_initial_notrefr$variable, targetmatrixPatients_clinical_initial_notrefr$sig.value),]
+targetmatrixPatients_clinical_initial_notrefr$patientID <- as.character(targetmatrixPatients_clinical_initial_notrefr$patientID)
+targetmatrixPatients_clinical_initial_notrefr$patientID <- ordered(targetmatrixPatients_clinical_initial_notrefr$patientID, levels=c("CLL186","CLL346","CLL144","CLL134","CLL348","CLL342","CLL301","CLL154","CLL344","CLL158","CLL129","CLL345","CLL160","CLL351", "CLL130" ,"CLL182", "CLL364", "CLL316", "CLL366", "CLL347"))
+
+nonrefractoryprofiles <- ggplot(data=targetmatrixPatients_clinical_initial_notrefr)+
+  geom_bar(aes(x=patientID, y=sig.value, fill=variable, order-variable), stat="identity", position="fill")+
+  coord_flip()+
+  guides(fill=FALSE)+
+scale_y_continuous(labels = percent_format())+
+  theme_bw()+
+scale_fill_manual(values=c("cadetblue3", "mediumvioletred", "lightslategrey"))+
+  ylab("Percentage")+
+  xlab("")+
+  ggtitle("Non-refractory patients")
+
+#perform univariate test:
+source("/home/andreas/suska/work/X_usefulcode/Rfunctions/Univariateanalysis.R")
+V1 <- subset(targetmatrixPatients_clinical_initial, targetmatrixPatients_clinical_initial$variable=="V1")
+pv1 <-round(univariate.pvalue(V1$flu_refrac, V1$sig.value, V1), 3)
+V2 <- subset(targetmatrixPatients_clinical_initial, targetmatrixPatients_clinical_initial$variable=="V2")
+pv2 <- round(univariate.pvalue(V2$flu_refrac, V2$sig.value, V2),3)
+V3 <- subset(targetmatrixPatients_clinical_initial, targetmatrixPatients_clinical_initial$variable=="V3")
+pv3 <- round(univariate.pvalue(V3$flu_refrac, V3$sig.value, V3),3)
+univariateresults <- data.frame(pvalue=c(pv1, pv2, pv3))
+univariateresults$pvalue <- as.character(univariateresults$pvalue)
+univariateresults$variable <- c("V1", "V2","V3")
+
+#Boxplots for each mutational profile
+valueboxplots <- ggplot(data=targetmatrixPatients_clinical_initial, aes(fill=variable))+
+  geom_boxplot(aes(x=flu_refrac, y=sig.value),outlier.shape = NA)+
+  facet_grid(.~variable)+
+scale_y_continuous(limits = c(0, 0.16))+
+  xlab("Flurabadine refractoryness")+
+  ylab("Mutational signature values")+
+  theme_bw()+
+  scale_fill_manual(values=c("cadetblue3", "mediumvioletred", "lightslategrey"))+
+  guides(fill=FALSE)+
+  ggtitle("Absolute mutational profiles")+
+  geom_text(data=univariateresults, aes(x=1.5, y=0.16, label=univariateresults$pvalue))#plug univariate pvalues into the graph
+  
+#combine these plots
+source("/home/andreas/suska/work/X_usefulcode/Rfunctions/multiplotfunction.R")
+multiplot(nonrefractoryprofiles, valueboxplots, refractoryprofiles, cols=3)
+@
+
+\section{sequential samples}
+<<fig=TRUE, echo=FALSE, width=10>>=
+#create a list with all patients only represented once
+patientIDlist <- unique(targetmatrixPatients_clinical$patientID)
+#make them into ordered factor to conserve the order in the plot
+targetmatrixPatients_clinical$variable <- ordered(targetmatrixPatients_clinical$variable)
+targetmatrixPatients_clinical$patientID_plot <- paste(targetmatrixPatients_clinical$patientID, targetmatrixPatients_clinical$age, targetmatrixPatients_clinical$flu_refrac, sep="_")
+
+ggplot(data=targetmatrixPatients_clinical) + 
+  geom_bar(aes(x=tumour_no, y=sig.value, fill = variable, order=variable),stat="identity", position="fill") + 
+    scale_y_continuous(labels = percent_format())+  
+  facet_wrap(~ patientID_plot, ncol=5)
+@
+
+
+\section*{References}
+Renaud Gaujoux et al. 
+exible R package for nonnegative matrix factorization". In: BMC
+Bioinformatics 11.1 (2010), p. 367. issn: 1471-2105. doi: 10.1186/1471-2105-11-367
+<<Citation, echo=FALSE, results=tex>>=
+citation("NMF")
+@
+
+\end{document}
