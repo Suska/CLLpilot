@@ -1,0 +1,159 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage{lscape}
+
+\title{CLL pilot - Rainfall analysis}
+\author{Dr. Susanne Weller}
+\date{\today}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+\maketitle
+\tableofcontents
+
+\section{Data preparation}
+Make sure that you have loaded the following R packages:\\
+ggplot2\\
+reshape2\\
+data.table\\
+SNV data were obtained from Illumina amd augmented with tumor numbers for sequential tumors and only snvs selected for the analysis. A python script is used to calculate intermutational distances.\\
+To create Kataegis plots, intermutational distances were calculated within each chromosome and plotted against chromosome numbers.
+\emph{Please play around with width and hight in R Sweave or export directly to pdf for appropriate sizes.}
+<<Data prep, echo=FALSE, eval=TRUE>>=
+#read file
+setwd("/home/andreas/suska/work/02_CLLpilot/CLLpilot/trunk/CLL_pilot_mutationsignature_rainfall")
+allmutations <- read.table("CLLpilot_snvs_sequ.csv", header=TRUE, sep=",")
+
+#take out relevant collumns:
+allmutations <- allmutations[, c(1:2,5:8)]
+#select only snvs:
+allsnvs <- subset(allmutations, allmutations$Type_5=="snv")
+#Chromosome x and y have to be numbers to give the correct order:
+allsnvs$Chr_2 <- ifelse(allsnvs$Chr_2=="X", "23", allsnvs$Chr_2)
+allsnvs$Chr_2 <- ifelse(allsnvs$Chr_2=="Y", "24", allsnvs$Chr_2)
+#sort file according to chromosome number and coordinate:
+allsnvs <- allsnvs[order(allsnvs$SampleIdentifierIllumina, allsnvs$TumourNumber, allsnvs$Chr_2, allsnvs$Coordinate_3),]
+write.csv(allsnvs, "allsnvs.csv", quote=FALSE, sep="\t", row.names=FALSE)
+
+#This python script calculates the intermutational distances within the chromosomes
+system("python /home/andreas/suska/work/02_CLLpilot/CLLpilot/trunk/CLL_pilot_mutationsignature_rainfall/rainfallprep_sequ.py")
+
+#read in the output file and rename columns
+allmutationdist <- read.table("out_allmutations.txt", stringsAsFactors = FALSE)
+colnames(allmutationdist) <- c("sample", "tumornumber", "variant","chromosome", "coordinate", "type", "mut.number",
+                             "intermut.dist", "mut.type")
+
+
+#snvs of the same type get the same name
+allmutationdist$mut.type <- as.factor(ifelse(allmutationdist$mut.type=="GA", "AG", allmutationdist$mut.type))
+@
+
+<<fig=TRUE, echo=FALSE, eval=TRUE, width=10, height=10>>=
+library(ggplot2)
+library(reshape2)
+library(scales)
+
+#make a new collumn for plots that contains sample and tumour number
+allmutationdist$sample_plot <- as.factor(paste(allmutationdist$sample, "_tumorno", allmutationdist$tumornumber, sep=""))
+
+#make a list of all sample_plots to iterate over:
+samplelist <- unique(allmutationdist$sample_plot)  
+
+#calculate x-intercepts for each sample
+  Xinterceptlist <- vector("list", length(samplelist))
+for(i in 1:length(samplelist)){
+  #subset whole dataframe for the ith sample from the sample list
+  sampledata <- subset(allmutationdist, sample_plot==samplelist[i])
+  #calculate x-intercepts:
+  Xintercept <- subset(sampledata, intermut.dist==0)[7]
+  Xinterceptlist[[i]] <- Xintercept
+}
+
+#produce plot for every sample_plot
+rainfallplotlist <- vector("list", length(samplelist))
+source("rainfallplot_sequ.R")
+# sampledata <- vector("list", 42)
+# Xintercept <- vector("list", 42)
+for(i in 1:length(samplelist)){
+  #subset whole dataframe for the ith sample from the sample list
+  sampledata <- subset(allmutationdist, sample_plot==samplelist[i])
+  rainfallplotlist[[i]] <- rainfallplot_sequ(sampledata)
+}
+
+# pdf("/home/andreas/suska/work/02_CLLpilot/CLLpilot/trunk/CLL_pilot_mutationsignature_rainfall/individualrainfall_sequ.pdf", width=11.7,
+#     height=8.3)
+source("/home/andreas/suska/work/X_usefulcode/Rfunctions/multiplotfunction.R")
+multiplot(plotlist=rainfallplotlist[1:5], cols=2)
+#dev.off()
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[6:12], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[13:16], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[17:19], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[20:21], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[22:25], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[26:30], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[31:33], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[34:35], cols=2)
+@
+\\
+<<fig=TRUE, echo=FALSE, eval=TRUE, height=9, width=10>>=
+multiplot(plotlist=rainfallplotlist[36:38], cols=2)
+@
+\section{Number of Kataegis events}
+From Lawrence 2013, nature:\\
+"Kataegis events, detected by identifying stretches of at least six mutations having inter-mutation distances at least two standard deviations smaller than the sample median, are indicated with blue boxes at the bottom of the plots. In some cases it can be observed that the individual mutations of a kataegis event are all of the same category."\\
+Because we have a very low number of kataegis events anyway, I counted each event separately, using the 10\% quantile as a cutoff. Note that the low number of kataegis events in some of the final samples might come from germ line contaminations.
+
+<<Number of Kataegis events, echo=FALSE, eval=TRUE, results=hide>>=
+library(plyr)
+#Change the quantile percentage here to change the cutoff
+kataegisevents_sdlist <- ddply(allmutationdist, .(sample_plot),summarize, sd(intermut.dist), median(intermut.dist), quantile(intermut.dist, 0.1))
+colnames(kataegisevents_sdlist) <- c("sample_plot", "sd", "median", "quantile")
+kataegisevents_sdlist$kat_cutoff <- kataegisevents_sdlist$median - 0.5*kataegisevents_sdlist$sd
+#kataegisevents_sdlist <- ddply(kataegisevents_sdlist, .(sample_plot), paste(str(quantile)))
+
+library(data.table)
+#remove 0s for mean calculations
+allmutationdist <- subset(allmutationdist, allmutationdist$intermut.dist>0)
+allmutationdist_dt <- data.table(allmutationdist)
+#This pastes the 10% quantile for each sample
+allmutationdist_dt[,quant:=quantile(intermut.dist, 0.1),by=allmutationdist_dt$sample_plot]
+allmutationdist_dt$kataegis <- ifelse(allmutationdist_dt$intermut.dist < allmutationdist_dt$quant, 1, 0)
+
+allmutationdist_sum <- allmutationdist_dt[,list(nokat=sum(kataegis)), by=c("sample", "tumornumber")]
+@
+
+<<fig=TRUE, echo=FALSE, eval=TRUE, width=10, height=10>>=
+ggplot(allmutationdist_sum, aes(x=tumornumber, y=nokat))+geom_line()+facet_grid(sample ~ . )
+@
+
+\end{document}
